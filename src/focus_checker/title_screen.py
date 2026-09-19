@@ -17,28 +17,20 @@ class TheTAApp(tk.Tk):
         self.minsize(800, 500)
         self.configure(bg="#f4f4f5")
 
-        self.current_ta = tk.StringVar(value="None")
+        self.selected_ta = None   # stays None if the window is closed
 
-        self.container = tk.Frame(self, bg="#f4f4f5")
-        self.container.pack(fill="both", expand=True)
+        TitleScreen(parent=self, controller=self).pack(fill="both", expand=True)
 
-        self.frames = {}
-        for PageClass in (TitleScreen, AppScreen):
-            page_name = PageClass.__name__
-            frame = PageClass(parent=self.container, controller=self)
-            self.frames[page_name] = frame
-            frame.grid(row=0, column=0, sticky="nsew")
+    def choose(self, ta_name):
+        self.selected_ta = ta_name
+        self.destroy()            # title screen disappears here
 
-        self.container.grid_rowconfigure(0, weight=1)
-        self.container.grid_columnconfigure(0, weight=1)
 
-        self.show_frame("TitleScreen")
-
-    def show_frame(self, page_name):
-        frame = self.frames[page_name]
-        if hasattr(frame, "on_show"):
-            frame.on_show()
-        frame.tkraise()
+def choose_ta():
+    """Show the title screen and return the chosen TA name (or None)."""
+    app = TheTAApp()
+    app.mainloop()
+    return app.selected_ta
 
 
 class TitleScreen(tk.Frame):
@@ -168,8 +160,7 @@ class TitleScreen(tk.Frame):
         err_label.place(relx=0.5, rely=0.5, anchor="center")
 
     def select_ta(self, choice):
-        self.controller.current_ta.set(choice)
-        self.controller.show_frame("AppScreen")
+        self.controller.choose(choice)
 
     def open_manual(self):
         messagebox.showinfo(
@@ -184,146 +175,6 @@ class TitleScreen(tk.Frame):
         )
 
 
-class AppScreen(tk.Frame):
-
-    def __init__(self, parent, controller):
-        super().__init__(parent, bg="#18181b")
-        self.controller = controller
-
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
-
-        top_bar = tk.Frame(self, bg="#27272a", height=50)
-        top_bar.grid(row=0, column=0, sticky="ew", padx=20, pady=(15, 0))
-
-        self.info_label = tk.Label(
-            top_bar,
-            text="",
-            font=("Arial", 12, "bold"),
-            bg="#27272a",
-            fg="#ffffff",
-        )
-        self.info_label.pack(side="left", padx=15, pady=10)
-
-        btn_back = tk.Button(
-            top_bar,
-            text="← Change TA",
-            font=("Arial", 9, "bold"),
-            bg="#3f3f46",
-            fg="#ffffff",
-            relief="flat",
-            padx=10,
-            pady=4,
-            command=lambda: self.controller.show_frame("TitleScreen"),
-        )
-        btn_back.pack(side="right", padx=15)
-
-        self.canvas = tk.Canvas(self, bg="#09090b", highlightthickness=0)
-        self.canvas.grid(row=1, column=0, sticky="nsew", padx=20, pady=20)
-
-    def on_show(self):
-        active_ta = self.controller.current_ta.get()
-        self.info_label.config(text=f"Active Backseater: {active_ta}")
-        self.draw_ta_graphic(active_ta)
-
-    def draw_ta_graphic(self, ta_name):
-        self.canvas.delete("all")
-        self.update_idletasks()
-        w = self.canvas.winfo_width()
-        h = self.canvas.winfo_height()
-
-        if w <= 1 or h <= 1:
-            return
-
-        if ta_name == "The Termtestinator":
-            self.canvas.create_rectangle(
-                w // 2 - 100,
-                h // 2 - 80,
-                w // 2 + 100,
-                h // 2 + 80,
-                fill="#7f1d1d",
-                outline="#ef4444",
-                width=3,
-            )
-            self.canvas.create_text(
-                w // 2,
-                h // 2 - 20,
-                text="[ STRICT MODE ACTIVE ]",
-                fill="#ffffff",
-                font=("Courier", 14, "bold"),
-            )
-            self.canvas.create_text(
-                w // 2,
-                h // 2 + 20,
-                text="'-5 points for missing semicolon'",
-                fill="#fca5a5",
-                font=("Arial", 10, "italic"),
-            )
-
-        elif ta_name == "Mr. President":
-            self.canvas.create_oval(
-                w // 2 - 90,
-                h // 2 - 90,
-                w // 2 + 90,
-                h // 2 + 90,
-                fill="#065f46",
-                outline="#10b981",
-                width=3,
-            )
-            self.canvas.create_text(
-                w // 2,
-                h // 2 - 10,
-                text="[ CHILL MODE ]",
-                fill="#ffffff",
-                font=("Arial", 14, "bold"),
-            )
-            self.canvas.create_text(
-                w // 2,
-                h // 2 + 20,
-                text="'Looking good, take a coffee break.'",
-                fill="#a7f3d0",
-                font=("Arial", 10),
-            )
-
-        elif ta_name == "The Torontonian":
-            self.canvas.create_rectangle(
-                w // 2 - 120,
-                h // 2 - 60,
-                w // 2 + 120,
-                h // 2 + 60,
-                fill="#1e293b",
-                outline="#64748b",
-                width=2,
-            )
-            self.canvas.create_text(
-                w // 2,
-                h // 2,
-                text="... (Watching you code) ...",
-                fill="#94a3b8",
-                font=("Georgia", 13, "italic"),
-            )
-
-        elif ta_name == "John Resident":
-            self.canvas.create_polygon(
-                w // 2,
-                h // 2 - 100,
-                w // 2 + 100,
-                h // 2 + 80,
-                w // 2 - 100,
-                h // 2 + 80,
-                fill="#581c87",
-                outline="#c084fc",
-                width=3,
-            )
-            self.canvas.create_text(
-                w // 2,
-                h // 2 + 10,
-                text="⚠️ CHAOS MODE ⚠️",
-                fill="#ffffff",
-                font=("Impact", 16),
-            )
-
 
 if __name__ == "__main__":
-    app = TheTAApp()
-    app.mainloop()
+    print(choose_ta())
