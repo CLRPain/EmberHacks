@@ -17,6 +17,23 @@ CHECK_INTERVAL = 5    # seconds between checks (free tier quota is tiny)
 ALERT_COOLDOWN = 45    # minimum seconds between spoken warnings
 FALLBACK_LINE = "Hey, eyes back on your work."
 WINDOW = "The TA (q to quit)"
+BREAK_DURATION = 300   # 5 minutes default break duration (in seconds)
+
+
+# --- ADDED: Non-blocking Break Timer Helper ---
+def check_break_status(break_end_time):
+    """
+    Calculates remaining break time without blocking the main thread loop.
+    Returns tuple: (is_on_break: bool, remaining_seconds: int)
+    """
+    if break_end_time is None:
+        return False, 0
+    now = time.time()
+    remaining = int(break_end_time - now)
+    if remaining > 0:
+        return True, remaining
+    return False, 0
+# -----------------------------------------------
 
 
 def speak(text):
@@ -83,6 +100,7 @@ def run_camera(ta_name):
     gate = MotionGate(buffer_size=5, change_ratio=MOTION_RATIO,
                       min_interval=MIN_INTERVAL, heartbeat=HEARTBEAT)
     status = f"{ta_name} is watching you..."
+    break_end_time = None  # ADDED: Track break expiration time
 
     with Camera() as cam:
         try:
@@ -94,10 +112,13 @@ def run_camera(ta_name):
 
                 diff = gate.difference(frame)   # for the on-screen readout
 
-                # Only feed the gate when we can actually use a capture.
+                # ADDED: Non-blocking break timer check
+                is_on_break, break_left = check_break_status(break_end_time)
+
+                # Only feed the gate when we can actually use a capture AND not on break.
                 # If it fired while a request was in flight, the change would be
                 # consumed (its reference frame reset) and the check would be lost.
-                if not checker.busy and not checker.quota_dead:
+                if not is_on_break and not checker.busy and not checker.quota_dead:
                     if gate.update(frame):
                         checker.submit(gate.latest())
 
@@ -111,9 +132,17 @@ def run_camera(ta_name):
                 display = frame.copy()
                 h, w = display.shape[:2]
                 cv2.rectangle(display, (0, h - 40), (w, h), (0, 0, 0), -1)
-                cv2.putText(display, status[:90], (10, h - 14),
+
+                # ADDED: Display break timer overlay if on break
+                if is_on_break:
+                    mins, secs = divmod(break_left, 60)
+                    disp_status = f"[ON BREAK] {mins:02d}:{secs:02d} left | Press 'b' to end break early"
+                else:
+                    disp_status = status[:90]
+
+                cv2.putText(display, disp_status, (10, h - 14),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
-                cv2.putText(display, f"TA: {ta_name} | motion {diff:.3f}", (10, 28),
+                cv2.putText(display, f"TA: {ta_name} | motion {diff:.3f} | Press 'B' for Break", (10, 28),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 cv2.imshow(WINDOW, display)
 
@@ -121,6 +150,13 @@ def run_camera(ta_name):
                 closed = cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1
                 if key in (ord("q"), ord("Q")) or closed:
                     break
+                # ADDED: Press 'b' or 'B' to toggle break mode on/off
+                elif key in (ord("b"), ord("B")):
+                    if is_on_break:
+                        break_end_time = None
+                        status = f"Break ended early. {ta_name} is watching you..."
+                    else:
+                        break_end_time = time.time() + BREAK_DURATION
         finally:
             cv2.destroyAllWindows()
 
