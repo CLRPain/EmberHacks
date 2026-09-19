@@ -6,7 +6,7 @@ import cv2
 
 from .camera import Camera
 from .detector import analyzeAttention
-from .scorer import generate_script
+from .scorer import select_ta
 from .motion_buffer import MotionGate
 import io
 import os
@@ -71,10 +71,15 @@ def _speak_offline(text):
 
 
 class Checker:
-    """Runs check -> script -> speech on a worker thread."""
+    """Runs check -> speech on a worker thread.
 
-    def __init__(self, ta_name):
-        self.ta_name = ta_name
+    The detector returns the verdict and the TA's spoken line in one Gemini
+    call, so there is no separate script step.
+    """
+
+    def __init__(self, ta_name, ta_key):
+        self.ta_name = ta_name         # display name from the title screen
+        self.ta_key = ta_key           # persona key from scorer.TAS
         self.events = queue.Queue()    # status strings for the video overlay
         self.busy = False
         self.quota_dead = False
@@ -91,19 +96,15 @@ class Checker:
     def _work(self, frame):
         try:
             small = cv2.resize(frame, (640, 360))   # smaller = faster, cheaper upload
-            result = analyzeAttention(small)
+            result = analyzeAttention(small, ta_key=self.ta_key, recent_lines=self._recent)
 
             label = "Distracted" if result.distracted else "Focused"
-            self.events.put(f"{label} ({result.confidence:.2f}): {result.explanation}")
+            self.events.put(f"{label} ({result.confidence:.2f}): {result.script}")
 
             now = time.time()
             if result.distracted and now - self._last_alert >= ALERT_COOLDOWN:
                 self._last_alert = now
-                try:
-                    line = generate_script(result, self.ta_name, self._recent)
-                except Exception as e:
-                    print("Script error:", e)
-                    line = FALLBACK_LINE
+                line = result.script or FALLBACK_LINE
                 self._recent.append(line)
                 self.events.put(f"{self.ta_name}: {line}")
                 speak(line)
@@ -119,7 +120,9 @@ class Checker:
 
 
 def run_camera(ta_name):
-    checker = Checker(ta_name)
+    """Run the camera loop for the selected TA (key or displayed name)."""
+    ta_key = select_ta(ta_name)
+    checker = Checker(ta_name, ta_key)
     gate = MotionGate(buffer_size=5, change_ratio=MOTION_RATIO,
                       min_interval=MIN_INTERVAL, heartbeat=HEARTBEAT)
     status = f"{ta_name} is watching you..."
@@ -165,8 +168,13 @@ def run_camera(ta_name):
             cv2.destroyAllWindows()
 
 
-if __name__ == "__main__":
+def main():
     from .title_screen import choose_ta
+
     ta = choose_ta()
-    if ta:
+    if ta is not None:
         run_camera(ta)
+
+
+if __name__ == "__main__":
+    main()

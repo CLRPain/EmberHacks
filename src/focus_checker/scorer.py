@@ -1,107 +1,94 @@
-"""Turns an AttentionResult into a spoken script for the selected TA persona."""
-
-import json
-import os
-from dataclasses import asdict
-
-from google.genai import types
-
-from .detector import DEFAULT_MODEL, AttentionResult, _get_client
+"""TA personas and the persona prompt the detector uses to write the spoken script."""
 
 # Add or edit personas here. The menu builds itself from this dict.
+# Keys line up with the button order on the title screen.
 TAS = {
     "1": {
-        "name": "Coach Riley",
+        "name": "The Termtestinator",
         "style": (
-            "An upbeat, high-energy sports coach. Motivating and encouraging, "
-            "uses short punchy sentences and light coaching lingo. Never mean."
+            "A relentless exam-enforcing machine, half robot and half proctor. "
+            "Flat, clipped, mechanical sentences; treats every distraction as a "
+            "threat to the term test and every task as a target to be eliminated. "
+            "Menacing in a cartoonish way, with the occasional 'I'll be back', "
+            "never actually cruel."
         ),
     },
     "2": {
-        "name": "Professor Whitmore",
+        "name": "Mr. President",
         "style": (
-            "A dry, witty, slightly sarcastic professor. Deadpan humor and "
-            "understated disappointment, but clearly wants the student to succeed."
+            "A pompous, over-the-top head of state addressing the nation. Grand "
+            "speeches, sweeping promises, and 'my fellow student'; treats the "
+            "person's focus as a matter of national importance. Purely fictional "
+            "and non-partisan, all bluster and no bite."
         ),
     },
     "3": {
-        "name": "Sage",
+        "name": "The Torontonian",
         "style": (
-            "A calm, gentle mindfulness guide. Soft, kind, and reassuring, "
-            "nudges the person back to focus without any guilt."
+            "A chatty, aggressively polite Torontonian. Apologizes while scolding, "
+            "says 'sorry' and 'eh', and drags in TTC delays, Tim Hortons, condo "
+            "prices, and the Leafs. Passive-aggressive niceness, uses Toronto slang."
         ),
     },
     "4": {
-        "name": "Sergeant Stern",
+        "name": "John Resident",
         "style": (
-            "A strict drill sergeant. Loud, blunt, and commanding, with playful "
-            "exaggeration. Tough love, never insulting or cruel."
+            "An exhausted hospital resident thirty hours into a shift, running on "
+            "vending-machine coffee. Deadpan and clinical: describes the distraction "
+            "like a symptom and prescribes focus like medication. Dry and tired, but "
+            "genuinely cares about the patient."
         ),
     },
 }
 
+# Displayed name -> key, so select_ta() accepts either.
+TA_NAMES = {ta["name"]: key for key, ta in TAS.items()}
+
 BASE_RULES = (
-    "You write short scripts that a text-to-speech voice will read aloud to a "
-    "person who is working at their computer. You are given a JSON attention "
-    "report produced from their webcam.\n"
-    "Report fields: 'distracted' (bool), 'confidence' (0-1, how sure the "
-    "analysis is that they are distracted), 'explanation' (what was observed).\n"
-    "Rules:\n"
+    "You are a TA watching a person work at their computer through their webcam. "
+    "Alongside your verdict you write a short line that a text-to-speech voice "
+    "will read aloud to them.\n"
+    "Rules for the 'script' field:\n"
     "- Stay fully in character as the TA described below.\n"
-    "- Output ONLY the words to be spoken: 3 sentences, under 40 words.\n"
+    "- 3 sentences, under 40 words. It is read aloud verbatim.\n"
     "- Plain text only. No emojis, markdown, asterisks, stage directions, "
-    "quotation marks, or the TA's name as a label.\n"
-    "- Mention what they were actually doing, based on 'explanation'.\n"
-    "- If distracted is true, redirect them back to work. If confidence is "
-    "low, be lighter and less accusatory.\n"
-    "- If distracted is false, give a brief, in-character word of praise.\n"
+    "quotation marks, or your name as a label.\n"
+    "- Mention what they are actually doing in the frame.\n"
+    "- If they are distracted, redirect them back to work. If you are not very "
+    "sure, be lighter and less accusatory.\n"
+    "- If they are not distracted, give a brief, in-character word of praise.\n"
     "- Be playful but never insulting, and never comment on their body or appearance.\n"
 )
 
+# Persona used when no ta_key is passed explicitly. Set with select_ta().
+current_ta: str | None = None
 
-def build_system_prompt(ta_key: str) -> str:
-    ta = TAS[ta_key]
+
+def _resolve_ta(ta_key: str | None) -> str:
+    key = ta_key if ta_key is not None else current_ta
+    if key not in TAS:
+        raise KeyError(f"Unknown TA '{key}'. Options: {list(TAS)} (call select_ta first)")
+    return key
+
+
+def build_system_prompt(ta_key: str | None = None) -> str:
+    ta = TAS[_resolve_ta(ta_key)]
     return f"{BASE_RULES}\nYour TA persona is {ta['name']}: {ta['style']}"
 
 
-def generate_script(
-    result: AttentionResult,
-    ta_key: str,
-    recent_lines: list[str] | None = None,
-) -> str:
-    """Ask Gemini for the line the TTS should read for this attention result.
-
-    recent_lines: previous scripts, so the TA doesn't repeat itself.
-    """
-    if ta_key not in TAS:
-        raise KeyError(f"Unknown TA '{ta_key}'. Options: {list(TAS)}")
-
-    user_prompt = "Attention report:\n" + json.dumps(asdict(result), indent=2)
-    if recent_lines:
-        user_prompt += (
-            "\n\nYou already said these recently, so say something different:\n- "
-            + "\n- ".join(recent_lines[-3:])
-        )
-
-    response = _get_client().models.generate_content(
-        model=os.environ.get("GEMINI_MODEL", DEFAULT_MODEL),
-        contents=user_prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=build_system_prompt(ta_key),
-            temperature=0.9,          # more variety than the detector's 0.0
-            max_output_tokens=1024,
-            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-        ),
-    )
-
-    text = (response.text or "").strip().strip('"')
-    if not text:
-        raise RuntimeError("Gemini returned an empty script")
-    return text
+def select_ta(option: int | str) -> str:
+    """Set the global TA persona from its key or displayed name."""
+    global current_ta
+    key = str(option).strip()
+    key = TA_NAMES.get(key, key)
+    if key not in TAS:
+        raise KeyError(f"Unknown TA '{option}'. Options: {list(TAS)}")
+    current_ta = key
+    return key
 
 
-def select_ta() -> str:
-    """Simple terminal menu. Returns the chosen key from TAS."""
+def prompt_for_ta() -> str:
+    """Simple terminal menu. Sets the global TA and returns the chosen key."""
     print("Choose your TA:")
     for key, ta in TAS.items():
         print(f"  {key}. {ta['name']}")
@@ -109,18 +96,18 @@ def select_ta() -> str:
         choice = input("> ").strip()
         if choice in TAS:
             print(f"Selected {TAS[choice]['name']}\n")
-            return choice
+            return select_ta(choice)
         print("Invalid choice, try again.")
 
 
 if __name__ == "__main__":
-    # Try it without a camera: fake results for each persona.
-    ta = select_ta()
-    samples = [
-        AttentionResult(True, 0.92, "The person is looking at their phone."),
-        AttentionResult(True, 0.55, "The person is looking away from the screen."),
-        AttentionResult(False, 0.05, "The person is typing and looking at the screen."),
-    ]
-    for s in samples:
-        print(s.explanation)
-        print("  ->", generate_script(s, ta), "\n")
+    # Try it without a camera: pick a TA, then score the bundled test images.
+    from pathlib import Path
+
+    from .detector import analyzeAttention
+
+    prompt_for_ta()
+    for img in sorted((Path(__file__).parent / "testImages").iterdir()):
+        result = analyzeAttention(str(img))
+        print(f"{img.name}: distracted={result.distracted} ({result.confidence:.2f})")
+        print("  ->", result.script, "\n")

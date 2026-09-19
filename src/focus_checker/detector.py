@@ -1,7 +1,8 @@
 """Attention detection via Gemini vision.
 
 Sends a webcam frame to Gemini and asks for a structured JSON verdict on
-whether the person in the frame is distracted.
+whether the person in the frame is distracted, plus the line the selected TA
+persona would say about it (see :mod:`.scorer`). One API call does both.
 
 Reads ``GEMINI_API_KEY`` from the environment, falling back to the ``.env``
 file at the repo root. Optionally set ``GEMINI_MODEL`` to override the
@@ -20,6 +21,8 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
+from .scorer import build_system_prompt
+
 # Repo root is two levels up from src/focus_checker/detector.py.
 # Real environment variables take precedence over the .env file.
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -32,6 +35,7 @@ PROMPT = (
     "Signs of distraction include: looking away from the screen for a non-trivial "
     "reason, using a phone, talking to someone else, eating, sleeping, or being "
     "absent from the frame. Brief glances or normal posture shifts are NOT distraction. "
+    "Then write the line you would say to them about it, in character. "
     "Respond only with the requested JSON."
 )
 
@@ -46,12 +50,12 @@ RESPONSE_SCHEMA = {
             "type": "number",
             "description": "Confidence from 0.0 to 1.0 that the person is distracted.",
         },
-        "explanation": {
+        "script": {
             "type": "string",
-            "description": "One short sentence explaining the verdict.",
+            "description": "What the TA says aloud to the person about this frame.",
         },
     },
-    "required": ["distracted", "confidence", "explanation"],
+    "required": ["distracted", "confidence", "script"],
 }
 
 
@@ -59,7 +63,7 @@ RESPONSE_SCHEMA = {
 class AttentionResult:
     distracted: bool
     confidence: float
-    explanation: str
+    script: str
 
 
 _client: genai.Client | None = None
@@ -91,8 +95,17 @@ def _get_client() -> genai.Client:
     return _client
 
 
-def analyzeAttention(img_location: str | os.PathLike[str] | np.ndarray) -> AttentionResult:
-    """Send an image path or OpenCV frame to Gemini."""
+def analyzeAttention(
+    img_location: str | os.PathLike[str] | np.ndarray,
+    ta_key: str | None = None,
+    recent_lines: list[str] | None = None,
+) -> AttentionResult:
+    """Send an image path or OpenCV frame to Gemini and return the verdict plus
+    the TA's spoken line.
+
+    ta_key: persona to use; defaults to the one set by scorer.select_ta().
+    recent_lines: previous scripts, so the TA doesn't repeat itself.
+    """
     if isinstance(img_location, np.ndarray):
         ok, encoded = cv2.imencode(".jpg", img_location)
         if not ok:
@@ -109,16 +122,26 @@ def analyzeAttention(img_location: str | os.PathLike[str] | np.ndarray) -> Atten
             mime_type = "image/jpeg"
         image_data = path.read_bytes()
 
+    prompt = PROMPT
+    if recent_lines:
+        prompt += (
+            "\n\nYou already said these recently, so say something different:\n- "
+            + "\n- ".join(recent_lines[-3:])
+        )
+
     response = _get_client().models.generate_content(
         model=os.environ.get("GEMINI_MODEL", DEFAULT_MODEL),
         contents=[
             types.Part.from_bytes(data=image_data, mime_type=mime_type),
-            PROMPT,
+            prompt,
         ],
         config=types.GenerateContentConfig(
+            system_instruction=build_system_prompt(ta_key),
             response_mime_type="application/json",
             response_schema=RESPONSE_SCHEMA,
-            temperature=0.0,
+            # Compromise: low enough for a stable verdict, high enough that the
+            # script doesn't come out identical every time.
+            temperature=0.7,
             # We pass no tools; this silences the SDK's AFC warning.
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
         ),
@@ -128,7 +151,7 @@ def analyzeAttention(img_location: str | os.PathLike[str] | np.ndarray) -> Atten
     return AttentionResult(
         distracted=bool(data["distracted"]),
         confidence=max(0.0, min(1.0, float(data["confidence"]))),
-        explanation=str(data["explanation"]),
+        script=str(data["script"]).strip().strip('"'),
     )
 
 
@@ -138,7 +161,7 @@ def checkAttention(img_location: str | os.PathLike[str] | np.ndarray) -> Attenti
     res = analyzeAttention(img_location)
 
     print(res.confidence)
-    print(res.explanation)
+    print(res.script)
 
     return res
 
@@ -146,7 +169,10 @@ def checkAttention(img_location: str | os.PathLike[str] | np.ndarray) -> Attenti
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) != 2:
-        sys.exit("usage: python -m focus_checker.detector <image>")
+    from .scorer import select_ta
+
+    if len(sys.argv) not in (2, 3):
+        sys.exit("usage: python -m focus_checker.detector <image> [ta_number]")
+    select_ta(sys.argv[2] if len(sys.argv) == 3 else "1")
     result = analyzeAttention(sys.argv[1])
     print(json.dumps(result.__dict__, indent=2))
