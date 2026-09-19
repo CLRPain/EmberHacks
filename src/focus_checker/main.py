@@ -14,14 +14,16 @@ import os
 
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"   # silences pygame's startup banner
 
-MOTION_RATIO = 0.03     # fraction of pixels that must change (raise if it fires too often)
+MOTION_RATIO = 0.01     # fraction of pixels that must change (raise if it fires too often)
 MIN_INTERVAL = 2.0     # never check more often than this, however much you move
 HEARTBEAT = 120         # check anyway after this many seconds of stillness (None to disable)
 
-CHECK_INTERVAL = 5    # seconds between checks (free tier quota is tiny)
+CHECK_INTERVAL = 2    # seconds between checks (free tier quota is tiny)
 ALERT_COOLDOWN = 45    # minimum seconds between spoken warnings
 FALLBACK_LINE = "Hey, eyes back on your work."
 WINDOW = "The TA (q to quit)"
+
+
 
 
 # tld picks the regional accent of the voice;s slow=True gives a deliberate delivery
@@ -107,7 +109,7 @@ class Checker:
                 line = result.script or FALLBACK_LINE
                 self._recent.append(line)
                 self.events.put(f"{self.ta_name}: {line}")
-                speak(line)
+                speak(line, self.ta_name)
         except Exception as e:
             msg = str(e)
             if "PerDay" in msg:
@@ -123,9 +125,8 @@ def run_camera(ta_name):
     """Run the camera loop for the selected TA (key or displayed name)."""
     ta_key = select_ta(ta_name)
     checker = Checker(ta_name, ta_key)
-    gate = MotionGate(buffer_size=5, change_ratio=MOTION_RATIO,
-                      min_interval=MIN_INTERVAL, heartbeat=HEARTBEAT)
     status = f"{ta_name} is watching you..."
+    last_check = 0.0
 
     with Camera() as cam:
         try:
@@ -135,14 +136,12 @@ def run_camera(ta_name):
                     print("Camera stopped delivering frames")
                     break
 
-                diff = gate.difference(frame)   # for the on-screen readout
-
-                # Only feed the gate when we can actually use a capture.
-                # If it fired while a request was in flight, the change would be
-                # consumed (its reference frame reset) and the check would be lost.
-                if not checker.busy and not checker.quota_dead:
-                    if gate.update(frame):
-                        checker.submit(gate.latest())
+                # Take a picture every CHECK_INTERVAL seconds. submit() refuses
+                # if the previous request is still running, so slow API calls
+                # skip a tick instead of piling up.
+                now = time.time()
+                if now - last_check >= CHECK_INTERVAL and checker.submit(frame):
+                    last_check = now
 
                 # Grab the newest status message, if any
                 try:
@@ -156,7 +155,9 @@ def run_camera(ta_name):
                 cv2.rectangle(display, (0, h - 40), (w, h), (0, 0, 0), -1)
                 cv2.putText(display, status[:90], (10, h - 14),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
-                cv2.putText(display, f"TA: {ta_name} | motion {diff:.3f}", (10, 28),
+                countdown = max(0, CHECK_INTERVAL - (time.time() - last_check))
+                label = "analyzing..." if checker.busy else f"next pic in {countdown:.0f}s"
+                cv2.putText(display, f"TA: {ta_name} | {label}", (10, 28),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 cv2.imshow(WINDOW, display)
 
@@ -166,7 +167,6 @@ def run_camera(ta_name):
                     break
         finally:
             cv2.destroyAllWindows()
-
 
 def main():
     from .title_screen import choose_ta
