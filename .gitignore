@@ -8,3 +8,4 @@ models/*.onnx
 *.avi
 captures/
 .DS_Store
+buffer_out/
