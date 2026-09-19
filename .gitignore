@@ -9,3 +9,4 @@ models/*.onnx
 captures/
 .DS_Store
 buffer_out/
+src/focus_checker/testImages/
