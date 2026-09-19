@@ -2,6 +2,10 @@ import os
 import queue
 import tempfile
 import threading
+import os
+import queue
+import tempfile
+import threading
 import time
 
 import cv2
@@ -112,4 +116,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    from .title_screen import choose_ta
+    ta = choose_ta()
+    if ta:
+        run_camera(ta)
