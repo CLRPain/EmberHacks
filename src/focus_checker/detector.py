@@ -15,6 +15,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+import cv2
+import numpy as np
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -94,22 +96,31 @@ def _get_client() -> genai.Client:
 
 
 def analyzeAttention(
-    img_location: str,
+    img_location: str | os.PathLike[str] | np.ndarray,
     ta_key: str | None = None,
     recent_lines: list[str] | None = None,
 ) -> AttentionResult:
-    """Send an image to Gemini and return the verdict plus the TA's spoken line.
+    """Send an image path or OpenCV frame to Gemini and return the verdict plus
+    the TA's spoken line.
 
     ta_key: persona to use; defaults to the one set by scorer.select_ta().
     recent_lines: previous scripts, so the TA doesn't repeat itself.
     """
-    path = Path(img_location)
-    if not path.is_file():
-        raise FileNotFoundError(f"Image not found: {img_location}")
-
-    mime_type, _ = mimetypes.guess_type(path.name)
-    if mime_type is None or not mime_type.startswith("image/"):
+    if isinstance(img_location, np.ndarray):
+        ok, encoded = cv2.imencode(".jpg", img_location)
+        if not ok:
+            raise ValueError("Could not encode camera frame as JPEG")
+        image_data = encoded.tobytes()
         mime_type = "image/jpeg"
+    else:
+        path = Path(img_location)
+        if not path.is_file():
+            raise FileNotFoundError(f"Image not found: {img_location}")
+
+        mime_type, _ = mimetypes.guess_type(path.name)
+        if mime_type is None or not mime_type.startswith("image/"):
+            mime_type = "image/jpeg"
+        image_data = path.read_bytes()
 
     prompt = PROMPT
     if recent_lines:
@@ -121,7 +132,7 @@ def analyzeAttention(
     response = _get_client().models.generate_content(
         model=os.environ.get("GEMINI_MODEL", DEFAULT_MODEL),
         contents=[
-            types.Part.from_bytes(data=path.read_bytes(), mime_type=mime_type),
+            types.Part.from_bytes(data=image_data, mime_type=mime_type),
             prompt,
         ],
         config=types.GenerateContentConfig(
@@ -144,18 +155,15 @@ def analyzeAttention(
     )
 
 
-def checkAttention(img_location: str) -> bool:
-    """Return True if the person in the image appears to be paying attention.
-
-    Wraps :func:`analyzeAttention` and discards the confidence/script.
-    """
+def checkAttention(img_location: str | os.PathLike[str] | np.ndarray) -> AttentionResult:
+    """Return the structured attention verdict for an image or camera frame."""
 
     res = analyzeAttention(img_location)
 
     print(res.confidence)
     print(res.script)
 
-    return not res.distracted
+    return res
 
 
 if __name__ == "__main__":
