@@ -8,6 +8,11 @@ from .camera import Camera
 from .detector import analyzeAttention
 from .scorer import generate_script
 from .motion_buffer import MotionGate
+import io
+import os
+
+
+os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"   # silences pygame's startup banner
 
 MOTION_RATIO = 0.03     # fraction of pixels that must change (raise if it fires too often)
 MIN_INTERVAL = 2.0     # never check more often than this, however much you move
@@ -19,13 +24,48 @@ FALLBACK_LINE = "Hey, eyes back on your work."
 WINDOW = "The TA (q to quit)"
 
 
-def speak(text):
-    """Blocking text-to-speech. Swap in your own engine if you like."""
+# tld picks the regional accent of the voice;s slow=True gives a deliberate delivery
+TA_VOICES = {
+    "The Termtestinator": {"tld": "com",    "slow": True},
+    "Mr. President":      {"tld": "com",    "slow": False},
+    "The Torontonian":    {"tld": "ca",     "slow": False},
+    "John Resident":      {"tld": "co.uk",  "slow": False},
+}
+
+_speak_lock = threading.Lock()   # never let two lines play over each other
+
+
+def speak(text, ta_name=None):
+    """Speak with gTTS (needs internet). Falls back to offline pyttsx3 on failure."""
+    cfg = TA_VOICES.get(ta_name, {})
+    try:
+        import pygame
+        from gtts import gTTS
+
+        buf = io.BytesIO()
+        gTTS(text=text, lang="en", tld=cfg.get("tld", "com"),
+             slow=cfg.get("slow", False)).write_to_fp(buf)
+        buf.seek(0)
+
+        with _speak_lock:
+            if not pygame.mixer.get_init():
+                pygame.mixer.init()
+            pygame.mixer.music.load(buf, "mp3")
+            pygame.mixer.music.play()
+            while pygame.mixer.music.get_busy():
+                time.sleep(0.05)
+    except Exception as e:
+        print("gTTS failed, using offline voice:", e)
+        _speak_offline(text)
+
+
+def _speak_offline(text):
     try:
         import pyttsx3
         engine = pyttsx3.init()
         engine.say(text)
         engine.runAndWait()
+        engine.stop()
     except Exception as e:
         print("TTS unavailable:", e)
 
