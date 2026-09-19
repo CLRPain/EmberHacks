@@ -1,10 +1,4 @@
-import os
 import queue
-import tempfile
-import threading
-import os
-import queue
-import tempfile
 import threading
 import time
 
@@ -12,62 +6,83 @@ import cv2
 
 from .camera import Camera
 from .detector import analyzeAttention
+from .scorer import generate_script
+from .motion_buffer import MotionGate
 
-INTERVAL = 5       # seconds between checks
-ALERT_AFTER = 45   # seconds of continuous "distracted" before alerting
+MOTION_RATIO = 0.03     # fraction of pixels that must change (raise if it fires too often)
+MIN_INTERVAL = 2.0     # never check more often than this, however much you move
+HEARTBEAT = 120         # check anyway after this many seconds of stillness (None to disable)
+
+CHECK_INTERVAL = 5    # seconds between checks (free tier quota is tiny)
+ALERT_COOLDOWN = 45    # minimum seconds between spoken warnings
+FALLBACK_LINE = "Hey, eyes back on your work."
+WINDOW = "The TA (q to quit)"
 
 
-def analyze_frame(frame):
-    """Write the frame to a temp file, analyze it, then delete the file."""
-    fd, path = tempfile.mkstemp(suffix=".jpg")
-    os.close(fd)
+def speak(text):
+    """Blocking text-to-speech. Swap in your own engine if you like."""
     try:
-        cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        return analyzeAttention(path)
-    finally:
-        os.remove(path)   # don't leave photos of the user on disk
+        import pyttsx3
+        engine = pyttsx3.init()
+        engine.say(text)
+        engine.runAndWait()
+    except Exception as e:
+        print("TTS unavailable:", e)
 
 
-class BackgroundAnalyzer:
-    """Runs analysis on a worker thread so the video loop never blocks."""
+class Checker:
+    """Runs check -> script -> speech on a worker thread."""
 
-    def __init__(self):
-        self._jobs = queue.Queue(maxsize=1)
-        self._results = queue.Queue()
+    def __init__(self, ta_name):
+        self.ta_name = ta_name
+        self.events = queue.Queue()    # status strings for the video overlay
         self.busy = False
-        threading.Thread(target=self._worker, daemon=True).start()
+        self.quota_dead = False
+        self._last_alert = 0.0
+        self._recent = []
 
     def submit(self, frame):
-        """Queue a frame. Returns False if a request is already in flight."""
-        if self.busy:
+        if self.busy or self.quota_dead:
             return False
         self.busy = True
-        self._jobs.put(frame.copy())   # copy: the main loop keeps changing `frame`
+        threading.Thread(target=self._work, args=(frame.copy(),), daemon=True).start()
         return True
 
-    def poll(self):
-        """Return a finished result (or Exception), or None if nothing is ready."""
+    def _work(self, frame):
         try:
-            return self._results.get_nowait()
-        except queue.Empty:
-            return None
+            small = cv2.resize(frame, (640, 360))   # smaller = faster, cheaper upload
+            result = analyzeAttention(small)
 
-    def _worker(self):
-        while True:
-            frame = self._jobs.get()
-            try:
-                self._results.put(analyze_frame(frame))
-            except Exception as e:
-                self._results.put(e)
-            finally:
-                self.busy = False
+            label = "Distracted" if result.distracted else "Focused"
+            self.events.put(f"{label} ({result.confidence:.2f}): {result.explanation}")
+
+            now = time.time()
+            if result.distracted and now - self._last_alert >= ALERT_COOLDOWN:
+                self._last_alert = now
+                try:
+                    line = generate_script(result, self.ta_name, self._recent)
+                except Exception as e:
+                    print("Script error:", e)
+                    line = FALLBACK_LINE
+                self._recent.append(line)
+                self.events.put(f"{self.ta_name}: {line}")
+                speak(line)
+        except Exception as e:
+            msg = str(e)
+            if "PerDay" in msg:
+                self.quota_dead = True
+                self.events.put("Daily Gemini quota used up. Try again tomorrow.")
+            else:
+                self.events.put(f"API error: {msg[:80]}")
+        finally:
+            self.busy = False
 
 
-def main():
-    analyzer = BackgroundAnalyzer()
-    last_capture = 0.0
-    distracted_since = None
-    alerted = False
+def run_camera(ta_name):
+    checker = Checker(ta_name)
+    gate = MotionGate(buffer_size=5, change_ratio=MOTION_RATIO,
+                      min_interval=MIN_INTERVAL, heartbeat=HEARTBEAT)
+    status = f"{ta_name} is watching you..."
 
     with Camera() as cam:
         try:
@@ -77,39 +92,34 @@ def main():
                     print("Camera stopped delivering frames")
                     break
 
-                now = time.time()
+                diff = gate.difference(frame)   # for the on-screen readout
 
-                # Start a new check only if the interval passed AND the last
-                # request has finished, so slow API calls never pile up.
-                if now - last_capture >= INTERVAL and analyzer.submit(frame):
-                    last_capture = now
+                # Only feed the gate when we can actually use a capture.
+                # If it fired while a request was in flight, the change would be
+                # consumed (its reference frame reset) and the check would be lost.
+                if not checker.busy and not checker.quota_dead:
+                    if gate.update(frame):
+                        checker.submit(gate.latest())
 
-                # Collect a result if one is ready (never waits)
-                result = analyzer.poll()
-                if isinstance(result, Exception):
-                    print("API error:", result)
-                elif result is not None:
-                    status = "distracted" if result.distracted else "focused"
-                    print(f"{status:10} ({result.confidence:.2f}) {result.explanation}")
-                    if result.distracted:
-                        distracted_since = distracted_since or time.time()
-                    else:
-                        distracted_since, alerted = None, False
-
-                if distracted_since and not alerted \
-                        and time.time() - distracted_since >= ALERT_AFTER:
-                    print("⚠️  You've been off-task for a while. Back to work!")
-                    alerted = True
+                # Grab the newest status message, if any
+                try:
+                    while True:
+                        status = checker.events.get_nowait()
+                except queue.Empty:
+                    pass
 
                 display = frame.copy()
-                if analyzer.busy:
-                    label = "analyzing..."
-                else:
-                    label = f"next check in {max(0, INTERVAL - (time.time() - last_capture)):.0f}s"
-                cv2.putText(display, label, (10, 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                cv2.imshow("Focus Checker (q to quit)", display)
-                if cv2.waitKey(1) & 0xFF in (ord("q"), ord("Q")):
+                h, w = display.shape[:2]
+                cv2.rectangle(display, (0, h - 40), (w, h), (0, 0, 0), -1)
+                cv2.putText(display, status[:90], (10, h - 14),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1)
+                cv2.putText(display, f"TA: {ta_name} | motion {diff:.3f}", (10, 28),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                cv2.imshow(WINDOW, display)
+
+                key = cv2.waitKey(1) & 0xFF
+                closed = cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1
+                if key in (ord("q"), ord("Q")) or closed:
                     break
         finally:
             cv2.destroyAllWindows()
