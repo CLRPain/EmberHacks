@@ -1,28 +1,60 @@
 import time
-from collections import deque
-from .camera import frames
-from .analyzer import analyze, State
 
-INTERVAL = 15        # seconds between API calls
-WINDOW = 4           # look at the last 4 results
-last_call = 0
-history = deque(maxlen=WINDOW)
+import cv2
 
-for frame in frames():
-    now = time.time()
-    if now - last_call < INTERVAL:
-        continue
-    last_call = now
+from .camera import Camera
+from .motion_buffer import MotionGate
+#from .analyzer import analyze, State
 
-    try:
-        result = analyze(frame)
-    except Exception as e:
-        print("API error:", e)
-        continue
+ALERT_AFTER = 45   # seconds of continuous "distracted" before alerting
 
-    history.append(result.state)
-    print(f"{result.state.value:10} ({result.confidence:.2f}) {result.reason}")
 
-    # Only alert on sustained slacking, not one bad frame
-    if list(history).count(State.DISTRACTED) >= 3:
-        print("⚠️  You've been off-task for a while. Back to work!")
+def main():
+    gate = MotionGate(buffer_size=5, change_ratio=0.02, min_interval=1.0, heartbeat=60)
+    distracted_since = None
+    alerted = False
+
+    with Camera() as cam:
+        try:
+            while True:
+                frame = cam.read()
+                if frame is None:
+                    print("Camera stopped delivering frames")
+                    break
+
+                diff = gate.difference(frame)   # for the on-screen readout
+
+                if gate.update(frame):
+                    try:
+                        result = analyze(gate.latest())
+                    except Exception as e:
+                        print("API error:", e)
+                        result = None
+
+                    if result:
+                        print(f"{result.state.value:10} "
+                              f"({result.confidence:.2f}) {result.reason}")
+
+                        if result.state == State.DISTRACTED:
+                            distracted_since = distracted_since or time.time()
+                        else:
+                            distracted_since, alerted = None, False
+
+                # State persists between captures, so check the timer every loop
+                if distracted_since and not alerted \
+                        and time.time() - distracted_since >= ALERT_AFTER:
+                    print("⚠️  You've been off-task for a while. Back to work!")
+                    alerted = True
+
+                display = frame.copy()
+                cv2.putText(display, f"diff {diff:.3f} | buffer {len(gate.buffer)}/5",
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                cv2.imshow("Focus Checker (q to quit)", display)
+                if cv2.waitKey(1) & 0xFF in (ord("q"), ord("Q")):
+                    break
+        finally:
+            cv2.destroyAllWindows()
+
+
+if __name__ == "__main__":
+    main()

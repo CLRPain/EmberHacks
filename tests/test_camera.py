@@ -1,13 +1,43 @@
+import os
+import time
 import cv2
-from src.focus_checker.camera import Camera
 
-with Camera() as cam:
-    while True:
-        frame = cam.read()
-        if frame is None:
-            print("No frame received")
-            break
-        cv2.imshow("Camera test", frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
+INDEX = 0
+SAVE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_frame.jpg")
+
+cap = cv2.VideoCapture(INDEX, cv2.CAP_DSHOW)
+if not cap.isOpened():
+    print(f"Could not open camera {INDEX}")
+    raise SystemExit(1)
+
+print("Saving to:", SAVE_PATH)
+print("Click the video window, then press 's' to save or 'q' to quit.")
+print("A frame will also be saved automatically after 3 seconds.")
+
+start = time.time()
+auto_saved = False
+
+def save(frame):
+    ok = cv2.imwrite(SAVE_PATH, frame)
+    print("Saved!" if ok else "imwrite FAILED", SAVE_PATH)
+
+while True:
+    ok, frame = cap.read()
+    if not ok:
+        print("Failed to read a frame")
+        break
+
+    cv2.imshow("Camera test", frame)
+
+    if not auto_saved and time.time() - start > 3:
+        save(frame)
+        auto_saved = True
+
+    key = cv2.waitKey(1) & 0xFF
+    if key in (ord("q"), ord("Q")):
+        break
+    if key in (ord("s"), ord("S")):
+        save(frame)
+
+cap.release()
 cv2.destroyAllWindows()
