@@ -10,7 +10,7 @@ ALERT_AFTER = 45   # seconds of continuous "distracted" before alerting
 
 
 def main():
-    gate = MotionGate(buffer_size=5, change_ratio=0.02, min_interval=1.0, heartbeat=60)
+    gate = MotionGate(buffer_size=5, change_ratio=0.02, min_interval=5.0, heartbeat=60)
     distracted_since = None
     alerted = False
 
