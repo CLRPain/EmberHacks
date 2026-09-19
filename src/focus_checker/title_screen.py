@@ -4,7 +4,7 @@ from tkinter import messagebox
 
 # Path to your PNG image (Must be in the same directory)
 # Make sure this PNG is pre-resized to fit your frame!
-IMAGE_PATH = "src/focus_checker/yellingTA.png"
+IMAGE_PATH = "./yellingTA.png"
 
 
 class TheTAApp(tk.Tk):
