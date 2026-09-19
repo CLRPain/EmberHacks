@@ -4,7 +4,7 @@ import cv2
 
 from .camera import Camera
 from .motion_buffer import MotionGate
-#from .analyzer import analyze, State
+from .detector import checkAttention
 
 ALERT_AFTER = 45   # seconds of continuous "distracted" before alerting
 
@@ -26,16 +26,17 @@ def main():
 
                 if gate.update(frame):
                     try:
-                        result = analyze(gate.latest())
+                        result = checkAttention(gate.latest())
                     except Exception as e:
                         print("API error:", e)
                         result = None
 
                     if result:
-                        print(f"{result.state.value:10} "
-                              f"({result.confidence:.2f}) {result.reason}")
+                        status = "distracted" if result.distracted else "focused"
+                        print(f"{status:10} "
+                              f"({result.confidence:.2f}) {result.explanation}")
 
-                        if result.state == State.DISTRACTED:
+                        if result.distracted:
                             distracted_since = distracted_since or time.time()
                         else:
                             distracted_since, alerted = None, False

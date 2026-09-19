@@ -14,6 +14,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+import cv2
+import numpy as np
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -89,20 +91,28 @@ def _get_client() -> genai.Client:
     return _client
 
 
-def analyzeAttention(img_location: str) -> AttentionResult:
-    """Send an image to Gemini and return the full structured verdict."""
-    path = Path(img_location)
-    if not path.is_file():
-        raise FileNotFoundError(f"Image not found: {img_location}")
-
-    mime_type, _ = mimetypes.guess_type(path.name)
-    if mime_type is None or not mime_type.startswith("image/"):
+def analyzeAttention(img_location: str | os.PathLike[str] | np.ndarray) -> AttentionResult:
+    """Send an image path or OpenCV frame to Gemini."""
+    if isinstance(img_location, np.ndarray):
+        ok, encoded = cv2.imencode(".jpg", img_location)
+        if not ok:
+            raise ValueError("Could not encode camera frame as JPEG")
+        image_data = encoded.tobytes()
         mime_type = "image/jpeg"
+    else:
+        path = Path(img_location)
+        if not path.is_file():
+            raise FileNotFoundError(f"Image not found: {img_location}")
+
+        mime_type, _ = mimetypes.guess_type(path.name)
+        if mime_type is None or not mime_type.startswith("image/"):
+            mime_type = "image/jpeg"
+        image_data = path.read_bytes()
 
     response = _get_client().models.generate_content(
         model=os.environ.get("GEMINI_MODEL", DEFAULT_MODEL),
         contents=[
-            types.Part.from_bytes(data=path.read_bytes(), mime_type=mime_type),
+            types.Part.from_bytes(data=image_data, mime_type=mime_type),
             PROMPT,
         ],
         config=types.GenerateContentConfig(
@@ -122,18 +132,15 @@ def analyzeAttention(img_location: str) -> AttentionResult:
     )
 
 
-def checkAttention(img_location: str) -> bool:
-    """Return True if the person in the image appears to be paying attention.
-
-    Wraps :func:`analyzeAttention` and discards the confidence/explanation.
-    """
+def checkAttention(img_location: str | os.PathLike[str] | np.ndarray) -> AttentionResult:
+    """Return the structured attention verdict for an image or camera frame."""
 
     res = analyzeAttention(img_location)
 
     print(res.confidence)
     print(res.explanation)
 
-    return not res.distracted
+    return res
 
 
 if __name__ == "__main__":
