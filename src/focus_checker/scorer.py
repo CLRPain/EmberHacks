@@ -32,6 +32,16 @@ TAS = {
     },
 }
 
+TA_NAMES = {ta["name"]: key for key, ta in TAS.items()}
+TA_NAMES.update(
+    {
+        "The Termtestinator": "1",
+        "Mr. President": "2",
+        "The Torontonian": "3",
+        "John Resident": "4",
+    }
+)
+
 BASE_RULES = (
     "You are a TA watching a person work at their computer through their webcam. "
     "Alongside your verdict you write a short line that a text-to-speech voice "
@@ -65,9 +75,10 @@ def build_system_prompt(ta_key: str | None = None) -> str:
 
 
 def select_ta(option: int | str) -> str:
-    """Set the global TA persona. `option` is the menu number (1-4) as int or str."""
+    """Set the global TA persona from its key or displayed name."""
     global current_ta
     key = str(option).strip()
+    key = TA_NAMES.get(key, key)
     if key not in TAS:
         raise KeyError(f"Unknown TA '{option}'. Options: {list(TAS)}")
     current_ta = key

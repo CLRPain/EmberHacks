@@ -1,10 +1,4 @@
-import os
 import queue
-import tempfile
-import threading
-import os
-import queue
-import tempfile
 import threading
 import time
 
@@ -12,28 +6,24 @@ import cv2
 
 from .camera import Camera
 from .detector import analyzeAttention
+from .scorer import select_ta
 
 INTERVAL = 5       # seconds between checks
 ALERT_AFTER = 45   # seconds of continuous "distracted" before alerting
 
 
-def analyze_frame(frame):
-    """Write the frame to a temp file, analyze it, then delete the file."""
-    fd, path = tempfile.mkstemp(suffix=".jpg")
-    os.close(fd)
-    try:
-        cv2.imwrite(path, frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        return analyzeAttention(path)
-    finally:
-        os.remove(path)   # don't leave photos of the user on disk
+def analyze_frame(frame, ta_key):
+    """Analyze a camera frame; the detector generates the spoken script."""
+    return analyzeAttention(frame, ta_key=ta_key)
 
 
 class BackgroundAnalyzer:
     """Runs analysis on a worker thread so the video loop never blocks."""
 
-    def __init__(self):
+    def __init__(self, ta_key):
         self._jobs = queue.Queue(maxsize=1)
         self._results = queue.Queue()
+        self.ta_key = ta_key
         self.busy = False
         threading.Thread(target=self._worker, daemon=True).start()
 
@@ -56,15 +46,17 @@ class BackgroundAnalyzer:
         while True:
             frame = self._jobs.get()
             try:
-                self._results.put(analyze_frame(frame))
+                self._results.put(analyze_frame(frame, self.ta_key))
             except Exception as e:
                 self._results.put(e)
             finally:
                 self.busy = False
 
 
-def main():
-    analyzer = BackgroundAnalyzer()
+def run_camera(ta):
+    """Run the camera loop for the selected TA."""
+    ta_key = select_ta(ta)
+    analyzer = BackgroundAnalyzer(ta_key)
     last_capture = 0.0
     distracted_since = None
     alerted = False
@@ -115,8 +107,13 @@ def main():
             cv2.destroyAllWindows()
 
 
-if __name__ == "__main__":
+def main():
     from .title_screen import choose_ta
+
     ta = choose_ta()
-    if ta:
+    if ta is not None:
         run_camera(ta)
+
+
+if __name__ == "__main__":
+    main()
