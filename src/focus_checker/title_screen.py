@@ -165,7 +165,7 @@ class TitleScreen(tk.Frame):
     def open_manual(self):
         messagebox.showinfo(
             "Instruction Manual",
-            "1. Select your desired TA personality.\nGet to work! If the TA detects you getting distracted, they’ll give you a warning.\nIf you want a break, just tell the TA you want a break.",
+            "1. Select your desired TA personality.\n2. Get to work! If the TA detects you getting distracted, they’ll give you a warning.\n3. If you want a break, just tell the TA you want a break.",
         )
 
     def open_rules(self):
