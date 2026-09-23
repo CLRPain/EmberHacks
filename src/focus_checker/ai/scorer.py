@@ -1,4 +1,10 @@
-"""TA personas and the persona prompt the detector uses to write the spoken script."""
+"""TA personas and the persona prompt the detector uses to write the spoken script.
+
+Each persona is a name plus a style description. build_system_prompt()
+combines the shared BASE_RULES with the chosen persona's style, and
+detector.py sends that as Gemini's system instruction, so the same API call
+that judges the frame also writes the line in that TA's voice.
+"""
 
 # Add or edit personas here. The menu builds itself from this dict.
 # Keys line up with the button order on the title screen.
@@ -44,6 +50,8 @@ TAS = {
 # Displayed name -> key, so select_ta() accepts either.
 TA_NAMES = {ta["name"]: key for key, ta in TAS.items()}
 
+# Rules shared by every persona (length, tone, safety). The persona's style is
+# appended after these.
 BASE_RULES = (
     "You are a TA watching a person work at their computer through their webcam. "
     "Alongside your verdict you write a short line that a text-to-speech voice "
@@ -65,6 +73,7 @@ current_ta: str | None = None
 
 
 def _resolve_ta(ta_key: str | None) -> str:
+    """Use the explicit key if given, else the globally selected TA."""
     key = ta_key if ta_key is not None else current_ta
     if key not in TAS:
         raise KeyError(f"Unknown TA '{key}'. Options: {list(TAS)} (call select_ta first)")
@@ -72,6 +81,7 @@ def _resolve_ta(ta_key: str | None) -> str:
 
 
 def build_system_prompt(ta_key: str | None = None) -> str:
+    """Full system instruction for Gemini: base rules + persona description."""
     ta = TAS[_resolve_ta(ta_key)]
     return f"{BASE_RULES}\nYour TA persona is {ta['name']}: {ta['style']}"
 
@@ -80,7 +90,7 @@ def select_ta(option: int | str) -> str:
     """Set the global TA persona from its key or displayed name."""
     global current_ta
     key = str(option).strip()
-    key = TA_NAMES.get(key, key)
+    key = TA_NAMES.get(key, key)   # "The Torontonian" -> "3"; "3" stays "3"
     if key not in TAS:
         raise KeyError(f"Unknown TA '{option}'. Options: {list(TAS)}")
     current_ta = key
@@ -107,7 +117,7 @@ if __name__ == "__main__":
     from .detector import analyzeAttention
 
     prompt_for_ta()
-    for img in sorted((Path(__file__).parent / "testImages").iterdir()):
+    for img in sorted((Path(__file__).parents[1] / "testImages").iterdir()):
         result = analyzeAttention(str(img))
         print(f"{img.name}: distracted={result.distracted} ({result.confidence:.2f})")
         print("  ->", result.script, "\n")

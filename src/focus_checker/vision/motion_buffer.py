@@ -1,3 +1,11 @@
+"""Motion gate: only keep frames where the scene visibly changed.
+
+Compares each frame to the last captured one (shrunk, grayscale, blurred) and
+captures when enough pixels changed. Cheap, no ML involved. Meant to decide
+when a frame is worth sending to Gemini; main.py imports it but currently
+uses a fixed timer instead. See tests/test_motion_buffer.py for a live demo.
+"""
+
 import time
 from collections import deque
 
@@ -20,7 +28,7 @@ class MotionGate:
         self.change_ratio = change_ratio
         self.min_interval = min_interval
         self.heartbeat = heartbeat
-        self._last_small = None
+        self._last_small = None   # prepared copy of the last captured frame
         self._last_time = 0.0
 
     @staticmethod
@@ -34,8 +42,9 @@ class MotionGate:
         """Return the fraction (0-1) of pixels that changed vs the last capture."""
         small = self._prepare(frame)
         if self._last_small is None:
-            return 1.0
+            return 1.0   # nothing to compare yet, treat as fully changed
         diff = cv2.absdiff(small, self._last_small)
+        # Pixels that changed by more than pixel_threshold become white (255)
         _, mask = cv2.threshold(diff, self.pixel_threshold, 255, cv2.THRESH_BINARY)
         return cv2.countNonZero(mask) / mask.size
 
@@ -46,6 +55,7 @@ class MotionGate:
             return False
 
         changed = self.difference(frame) >= self.change_ratio
+        # Heartbeat: capture anyway if nothing has been captured for a while
         stale = self.heartbeat is not None and now - self._last_time >= self.heartbeat
 
         if changed or stale:
@@ -56,7 +66,9 @@ class MotionGate:
         return False
 
     def latest(self):
+        """Most recently captured frame, or None."""
         return self.buffer[-1] if self.buffer else None
 
     def frames(self):
+        """All buffered frames, oldest first."""
         return list(self.buffer)

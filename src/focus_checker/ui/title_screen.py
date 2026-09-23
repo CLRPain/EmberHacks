@@ -1,13 +1,23 @@
+"""Title screen: a Tkinter window where the user picks their TA.
+
+choose_ta() opens the window and blocks until a TA button is clicked (returns
+that TA's display name) or the window is closed (returns None). Left half
+shows the yelling-TA picture; right half has the title, one button per TA,
+and Manual / Description popups.
+"""
+
 import os
 import tkinter as tk
 from tkinter import messagebox
 
-# Path to your PNG image (Must be in the same directory)
+# Path to your PNG image, relative to the folder you run the app from
+# (the repo root when using run.py)
 # Make sure this PNG is pre-resized to fit your frame!
 IMAGE_PATH = "./yellingTA.png"
 
 
 class TheTAApp(tk.Tk):
+    """Root window. Holds the TitleScreen and remembers which TA was chosen."""
 
     def __init__(self):
         super().__init__()
@@ -23,7 +33,7 @@ class TheTAApp(tk.Tk):
 
     def choose(self, ta_name):
         self.selected_ta = ta_name
-        self.destroy()            # title screen disappears here
+        self.destroy()            # title screen disappears here; ends mainloop()
 
 
 def choose_ta():
@@ -34,11 +44,13 @@ def choose_ta():
 
 
 class TitleScreen(tk.Frame):
+    """The actual screen content: image on the left, menu on the right."""
 
     def __init__(self, parent, controller):
         super().__init__(parent, bg="#ffffff")
-        self.controller = controller
+        self.controller = controller   # the TheTAApp, told when a TA is picked
 
+        # Two equal-width columns that stretch with the window
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -89,6 +101,8 @@ class TitleScreen(tk.Frame):
         )
         subtitle_label.pack(anchor="nw", pady=(0, 20))
 
+        # (button label, value returned). Values must match the names in
+        # scorer.TAS and main.TA_VOICES.
         ta_options = [
             ("The Termtestinator", "The Termtestinator"),
             ("Mr. President", "Mr. President"),
@@ -108,6 +122,8 @@ class TitleScreen(tk.Frame):
                 relief="groove",
                 bd=2,
                 pady=8,
+                # c=choice binds the current value; a plain lambda would
+                # make every button pick the last TA
                 command=lambda c=choice: self.select_ta(c),
             )
             btn.pack(fill="x", pady=6)
@@ -149,6 +165,7 @@ class TitleScreen(tk.Frame):
         version_label.pack(side="right")
 
     def show_error(self, parent_frame, text):
+        """Show red error text in place of the image."""
         err_label = tk.Label(
             parent_frame,
             text=text,
@@ -177,4 +194,5 @@ class TitleScreen(tk.Frame):
 
 
 if __name__ == "__main__":
+    # Preview the title screen alone and print what was picked
     print(choose_ta())

@@ -1,8 +1,15 @@
+"""Manual camera check (not a pytest test): shows the feed and saves a frame.
+
+Saves tests/test_frame.jpg automatically after 3 seconds, and again whenever
+you press s. Handy for grabbing a sample image to feed to detector.py.
+Note: CAP_DSHOW is the Windows DirectShow backend.
+"""
+
 import os
 import time
 import cv2
 
-INDEX = 0
+INDEX = 0   # which camera to open (0 = default webcam)
 SAVE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "test_frame.jpg")
 
 cap = cv2.VideoCapture(INDEX, cv2.CAP_DSHOW)

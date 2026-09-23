@@ -1,6 +1,12 @@
+"""Manual demo of EyeGate (not a pytest test). Run from the repo root.
+
+Every time your gaze shifts enough, the frame is saved to tests/buffer_out/
+and the shift size is printed, so you can tune gaze_threshold by eye.
+"""
+
 import os
 import cv2
-from src.focus_checker.eye_gate import EyeGate
+from src.focus_checker.vision.eye_gate import EyeGate
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "buffer_out")
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -25,6 +31,7 @@ while True:
         cv2.imwrite(path, gate.latest())
         print(f"Captured #{count} (gaze shift {gate.last_diff:.3f}) -> {path}")
 
+    # Overlay the gate's live state: tracking/blink/no face, last shift, buffer fill
     display = frame.copy()
     cv2.putText(display, f"{gate.status} | shift {gate.last_diff:.2f} | buffer {len(gate.buffer)}/5",
                 (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)

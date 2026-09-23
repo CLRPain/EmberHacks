@@ -10,3 +10,8 @@ captures/
 .DS_Store
 buffer_out/
 src/focus_checker/testImages/
+
+# PyInstaller output
+build/
+dist/
+*.spec

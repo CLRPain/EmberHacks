@@ -1,4 +1,10 @@
-from src.focus_checker.title_screen import choose_ta
+"""Entry point for The TA. Run with ``python run.py`` from the repo root.
+
+Flow: title screen (pick a TA persona) -> webcam loop that periodically sends
+a frame to Gemini and has the chosen TA speak up when you look distracted.
+"""
+
+from src.focus_checker.ui.title_screen import choose_ta
 from src.focus_checker.main import run_camera
 
 

@@ -1,6 +1,12 @@
+"""Manual demo of MotionGate (not a pytest test). Run from the repo root.
+
+Shows the live change ratio on screen and prints each capture. Press d to
+dump the buffered frames to tests/buffer_out/ to see what would be sent.
+"""
+
 import os
 import cv2
-from src.focus_checker.motion_buffer import MotionGate
+from src.focus_checker.vision.motion_buffer import MotionGate
 
 gate = MotionGate(buffer_size=5, change_ratio=0.02, min_interval=1.0)
 cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)

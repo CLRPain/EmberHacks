@@ -23,12 +23,14 @@ from google.genai import types
 
 from .scorer import build_system_prompt
 
-# Repo root is two levels up from src/focus_checker/detector.py.
+# Repo root is three levels up from src/focus_checker/ai/detector.py.
 # Real environment variables take precedence over the .env file.
-load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 DEFAULT_MODEL = "gemini-3.6-flash"
 
+# The per-frame instruction. The persona and script-writing rules live in the
+# system prompt built by scorer.build_system_prompt().
 PROMPT = (
     "You are monitoring a person working at a computer via their webcam. "
     "Look at this frame and decide whether they are distracted from their work. "
@@ -39,6 +41,8 @@ PROMPT = (
     "Respond only with the requested JSON."
 )
 
+# Structured output: Gemini is forced to reply with JSON matching this shape,
+# so the reply can be parsed with json.loads() without any text scraping.
 RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -61,15 +65,18 @@ RESPONSE_SCHEMA = {
 
 @dataclass
 class AttentionResult:
+    """Parsed Gemini verdict for one frame."""
     distracted: bool
-    confidence: float
-    script: str
+    confidence: float   # 0.0-1.0, clamped
+    script: str         # what the TA says aloud
 
 
+# Created lazily on first use, so importing this module doesn't need an API key.
 _client: genai.Client | None = None
 
 
 def _get_client() -> genai.Client:
+    """Return the shared Gemini client, creating it on first call."""
     global _client
     if _client is None:
         api_key = os.environ.get("GEMINI_API_KEY")
@@ -106,6 +113,8 @@ def analyzeAttention(
     ta_key: persona to use; defaults to the one set by scorer.select_ta().
     recent_lines: previous scripts, so the TA doesn't repeat itself.
     """
+    # Accept either a live OpenCV frame (numpy array) or a path to an image
+    # file, and turn it into raw bytes + a MIME type for the API.
     if isinstance(img_location, np.ndarray):
         ok, encoded = cv2.imencode(".jpg", img_location)
         if not ok:
@@ -122,6 +131,7 @@ def analyzeAttention(
             mime_type = "image/jpeg"
         image_data = path.read_bytes()
 
+    # Show the model its last few lines so it doesn't keep repeating itself.
     prompt = PROMPT
     if recent_lines:
         prompt += (
@@ -147,6 +157,8 @@ def analyzeAttention(
         ),
     )
 
+    # Parse the JSON and sanitize: clamp confidence to 0-1 and strip stray
+    # quotes the model sometimes wraps the script in.
     data = json.loads(response.text)
     return AttentionResult(
         distracted=bool(data["distracted"]),
@@ -156,7 +168,11 @@ def analyzeAttention(
 
 
 def checkAttention(img_location: str | os.PathLike[str] | np.ndarray) -> AttentionResult:
-    """Return the structured attention verdict for an image or camera frame."""
+    """Return the structured attention verdict for an image or camera frame.
+
+    Debug helper: same as analyzeAttention() with the current TA, but also
+    prints the result. The main app calls analyzeAttention() directly.
+    """
 
     res = analyzeAttention(img_location)
 
@@ -167,12 +183,14 @@ def checkAttention(img_location: str | os.PathLike[str] | np.ndarray) -> Attenti
 
 
 if __name__ == "__main__":
+    # Manual test on a saved image, no camera needed:
+    #   python -m src.focus_checker.ai.detector path/to/photo.jpg 3
     import sys
 
     from .scorer import select_ta
 
     if len(sys.argv) not in (2, 3):
-        sys.exit("usage: python -m focus_checker.detector <image> [ta_number]")
+        sys.exit("usage: python -m src.focus_checker.ai.detector <image> [ta_number]")
     select_ta(sys.argv[2] if len(sys.argv) == 3 else "1")
     result = analyzeAttention(sys.argv[1])
     print(json.dumps(result.__dict__, indent=2))

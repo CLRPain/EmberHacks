@@ -1,7 +1,17 @@
+"""Webcam access.
+
+Wraps OpenCV's VideoCapture so the rest of the app can just call
+``cam.read()`` and always get a fresh frame (or None). Used as a context
+manager (``with Camera() as cam:``) so the device is released on exit.
+
+Run this file directly for a live preview window; press q to quit.
+"""
+
 import cv2
 
 
 class CameraError(RuntimeError):
+    """Raised when the webcam can't be opened."""
     pass
 
 
@@ -24,13 +34,15 @@ class Camera:
         # Discard any buffered frames so we get a current image,
         # not one captured seconds ago while the loop was waiting.
         for _ in range(2):
-            self.cap.grab()
+            self.cap.grab()       # grab() pulls a frame without decoding it (cheap)
         ok, frame = self.cap.read()
         return frame if ok else None
 
     def release(self):
         self.cap.release()
 
+    # Context-manager support: `with Camera() as cam:` releases the device
+    # even if the loop inside raises.
     def __enter__(self):
         return self
 
@@ -49,6 +61,7 @@ def frames(index=0):
             
             
 if __name__ == "__main__":
+    # Manual test: show the live feed so you can check the camera works.
     import cv2
     with Camera() as cam:
         while True:
