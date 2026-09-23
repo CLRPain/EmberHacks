@@ -7,7 +7,7 @@ cffi==2.1.1
 charset-normalizer==3.5.1
 click==8.1.8
 colorama==0.4.6
-comtypes==1.4.16
+comtypes==1.4.16; sys_platform == "win32"
 contourpy==1.4.0
 cryptography==50.0.1
 cycler==0.12.1
@@ -25,7 +25,7 @@ jax==0.11.2
 jaxlib==0.11.2
 kiwisolver==1.5.1
 matplotlib==3.11.2
-mediapipe==0.10.14
+mediapipe==0.10.14; python_version < "3.13"
 ml_dtypes==0.6.0
 numpy==2.5.3
 opencv-contrib-python==5.0.0.93
@@ -41,11 +41,11 @@ pydantic==2.13.5
 pydantic_core==2.46.5
 pygame==2.6.1
 pyparsing==3.3.2
-pypiwin32==223
+pypiwin32==223; sys_platform == "win32"
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.3
 pyttsx3==2.99
-pywin32==312
+pywin32==312; sys_platform == "win32"
 requests==2.34.2
 scipy==1.18.1
 six==1.17.0

@@ -6,25 +6,28 @@ You pick a TA persona on the title screen, and the app opens your webcam. Every 
 
 ## Quick start
 
+On Windows (PowerShell):
+
 ```powershell
 git clone https://github.com/CLRPain/EmberHacks.git
 cd EmberHacks
 py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1      # Windows PowerShell
-python -m pip install --upgrade pip
+.\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-python -c "import gtts, pygame, pyttsx3; print('TTS dependencies installed')"
-echo "GEMINI_API_KEY=your-key-here" > .env
+Set-Content .env "GEMINI_API_KEY=your-key-here"
 python run.py
 ```
 
-The sections below go through each step in detail.
+- **Use Python 3.11.** `py -3.11` picks it even if you have a newer Python installed. The app also runs on 3.13 and newer, but `mediapipe` gets skipped there, so the eye-tracking demo (`tests/test_eyes.py`) won't work.
+- **Use `python -m pip`, not `pip`.** Plain `pip` can belong to a different Python, which leaves `gtts`, `pygame` and `pyttsx3` missing when you run the app.
+
+On macOS or Linux, see [step 2](#2-install-the-python-packages). The sections below go through each step in detail.
 
 ## Setup
 
 ### 1. What you need
 
-- **Python 3.10–3.12.** MediaPipe 0.10.14, which is in `requirements.txt`, has no wheels for newer Python versions.
+- **Python 3.10–3.12** (3.11 recommended). Newer versions run the app, but MediaPipe 0.10.14 doesn't support them, so pip skips it and the eye-tracking demo won't work.
 - **A webcam.**
 - **Speakers or headphones** to hear the TA.
 - **An internet connection**, for Gemini and for Google's text-to-speech.
@@ -60,12 +63,7 @@ python -m pip install -r requirements.txt
 python -c "import gtts, pygame, pyttsx3; print('TTS dependencies installed')"
 ```
 
-**On macOS or Linux,** `requirements.txt` includes three Windows-only packages that will fail to install: `pywin32`, `pypiwin32` and `comtypes`. `pyttsx3` uses them on Windows. Remove them before you install:
-
-```bash
-grep -viE '^(pywin32|pypiwin32|comtypes)==' requirements.txt > requirements-unix.txt
-pip install -r requirements-unix.txt
-```
+The same `requirements.txt` works on every OS. Packages that only apply to some platforms have markers, so pip skips them where they don't apply: `pywin32`, `pypiwin32` and `comtypes` install only on Windows, and `mediapipe` only on Python 3.12 or older.
 
 **Linux system packages.** Tkinter, OpenCV, the offline voice and audio playback need these system packages:
 
@@ -237,6 +235,6 @@ The camera test scripts use `cv2.CAP_DSHOW`, which only exists on Windows. On ma
 | `Daily Gemini quota used up`       | The free tier has a daily limit. Wait until tomorrow, or raise `CHECK_INTERVAL` in `main.py` so it lasts longer.      |
 | Title screen image is missing      | Run from the repo root so `./yellingTA.png` can be found.                                                             |
 | `No module named '_tkinter'`       | Install Tkinter: `sudo apt install python3-tk` on Linux, or `brew install python-tk` on macOS.                        |
-| `pip install` fails on `pywin32`   | You're not on Windows. See the note in [step 2](#2-install-the-python-packages).                                      |
-| `pip install` fails on `mediapipe` | Use Python 3.10–3.12.                                                                                                 |
+| `No module named 'mediapipe'` in `test_eyes.py` | MediaPipe is skipped on Python 3.13 and newer. Make the venv with Python 3.11: `py -3.11 -m venv .venv`. |
+| `No module named 'pygame'` (or `pyttsx3`) | Activate the venv and reinstall with `python -m pip install -r requirements.txt`. Plain `pip` may have installed into a different Python. |
 | No sound                           | Run `python test_speak.py`. If gTTS fails, the app falls back to the offline voice, which needs `espeak-ng` on Linux. |
