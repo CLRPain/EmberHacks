@@ -6,12 +6,14 @@ You pick a TA persona on the title screen, and the app opens your webcam. Every 
 
 ## Quick start
 
-```bash
+```powershell
 git clone https://github.com/CLRPain/EmberHacks.git
 cd EmberHacks
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1      # Windows PowerShell
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -c "import gtts, pygame, pyttsx3; print('TTS dependencies installed')"
 echo "GEMINI_API_KEY=your-key-here" > .env
 python run.py
 ```
@@ -30,12 +32,32 @@ The sections below go through each step in detail.
 
 ### 2. Install the Python packages
 
-Create a virtual environment and install into it from the repo root:
+Create a virtual environment with Python 3.10-3.12 and install into it from
+the repo root. On Windows, use the Python launcher so the supported interpreter
+is selected explicitly:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -c "import gtts, pygame, pyttsx3; print('TTS dependencies installed')"
+```
+
+If PowerShell blocks activation, run `Set-ExecutionPolicy -Scope Process
+Bypass` in that terminal and activate again. Always use `python -m pip` after
+activating the environment; bare `pip` may belong to a different Python
+installation, which can make the packages appear installed but unavailable to
+`python run.py`.
+
+On macOS or Linux, replace the environment commands with:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -c "import gtts, pygame, pyttsx3; print('TTS dependencies installed')"
 ```
 
 **On macOS or Linux,** `requirements.txt` includes three Windows-only packages that will fail to install: `pywin32`, `pypiwin32` and `comtypes`. `pyttsx3` uses them on Windows. Remove them before you install:
@@ -124,9 +146,11 @@ EmberHacks/
 ```
 
 ### `run.py`
+
 This is the entry point. It shows the title screen, waits for you to pick a TA, and then starts the camera loop with that TA. If you close the title screen without choosing, the app exits.
 
 ### `src/focus_checker/main.py`
+
 This file contains the main loop.
 
 - **`run_camera(ta_name)`** opens the webcam and draws the overlay: a status bar at the bottom, and the TA name with a countdown at the top. Every `CHECK_INTERVAL` seconds it passes a frame to the `Checker`.
@@ -135,13 +159,14 @@ This file contains the main loop.
 
 Settings at the top of the file:
 
-| Setting | Default | What it does |
-|---|---|---|
-| `CHECK_INTERVAL` | `2` | Seconds between Gemini calls |
-| `ALERT_COOLDOWN` | `45` | Minimum seconds between spoken warnings |
-| `FALLBACK_LINE` | "Hey, eyes back on your work." | Spoken if Gemini returns an empty line |
+| Setting          | Default                        | What it does                            |
+| ---------------- | ------------------------------ | --------------------------------------- |
+| `CHECK_INTERVAL` | `2`                            | Seconds between Gemini calls            |
+| `ALERT_COOLDOWN` | `45`                           | Minimum seconds between spoken warnings |
+| `FALLBACK_LINE`  | "Hey, eyes back on your work." | Spoken if Gemini returns an empty line  |
 
 ### `src/focus_checker/ai/detector.py`
+
 This file sends frames to Gemini.
 
 - **`analyzeAttention(image, ta_key, recent_lines)`** takes either an OpenCV frame or an image path. It sends the image to Gemini and returns an `AttentionResult` with `distracted`, `confidence` (0–1) and `script`, the line to speak.
@@ -151,11 +176,13 @@ This file sends frames to Gemini.
 - It loads the API key from `.env` the first time it's needed. You can import the module without a key.
 
 To test on a saved image without a camera:
+
 ```bash
 python -m src.focus_checker.ai.detector path/to/photo.jpg 3    # 3 = TA number
 ```
 
 ### `src/focus_checker/ai/scorer.py`
+
 This file defines the TA personas.
 
 - **`TAS`** maps a key to each TA's name and style description. Edit this dict to add or change personas.
@@ -164,14 +191,17 @@ This file defines the TA personas.
 - **`select_ta(option)`** accepts either a key (`"3"`) or a display name (`"The Torontonian"`).
 
 To score the images in `testImages/` from the terminal:
+
 ```bash
 python -m src.focus_checker.ai.scorer
 ```
 
 ### `src/focus_checker/vision/camera.py`
+
 This is a small wrapper around `cv2.VideoCapture`. Use it as `with Camera() as cam:` so the webcam is released when you're done. `read()` throws away a couple of buffered frames first, so you get the current image rather than one from a few seconds ago. If the camera can't be opened, it raises `CameraError` with a message suggesting what to check.
 
 ### `src/focus_checker/vision/motion_buffer.py` and `eye_gate.py`
+
 These are two ways to decide when a frame is worth sending to Gemini, instead of sending one on a fixed timer. **Neither is used by `main.py` yet.**
 
 - **`MotionGate`** captures a frame when enough pixels have changed since the last capture. It compares shrunk, grayscale, blurred copies, so it doesn't use any machine learning and is cheap to run.
@@ -180,31 +210,33 @@ These are two ways to decide when a frame is worth sending to Gemini, instead of
 Both keep the last few captured frames in a buffer and have an optional `heartbeat` setting, which forces a capture after a period with no changes.
 
 ### `src/focus_checker/ui/title_screen.py`
+
 This is the Tkinter title screen. `choose_ta()` opens the window and waits until you click a TA, then returns that TA's name. If you close the window instead, it returns `None`. The window also has "Instruction Manual" and "Program Description" buttons that open popups.
 
 The button values must match the names in `scorer.TAS` and `main.TA_VOICES`. If you add a TA, add it in all three places.
 
 ### `tests/` and `test_speak.py`
+
 These are manual scripts, not automated tests. Run them from the repo root:
 
-| Script | What it does |
-|---|---|
-| `python test_speak.py` | Speaks one line so you can check your audio |
-| `python tests/test_camera.py` | Shows the webcam and saves `tests/test_frame.jpg` (press **s** to save again) |
-| `python -m tests.test_motion_buffer` | Live demo of `MotionGate` (press **d** to save the buffered frames) |
-| `python -m tests.test_eyes` | Live demo of `EyeGate`, saving a frame each time your gaze shifts |
+| Script                               | What it does                                                                  |
+| ------------------------------------ | ----------------------------------------------------------------------------- |
+| `python test_speak.py`               | Speaks one line so you can check your audio                                   |
+| `python tests/test_camera.py`        | Shows the webcam and saves `tests/test_frame.jpg` (press **s** to save again) |
+| `python -m tests.test_motion_buffer` | Live demo of `MotionGate` (press **d** to save the buffered frames)           |
+| `python -m tests.test_eyes`          | Live demo of `EyeGate`, saving a frame each time your gaze shifts             |
 
 The camera test scripts use `cv2.CAP_DSHOW`, which only exists on Windows. On macOS or Linux, change `cv2.VideoCapture(0, cv2.CAP_DSHOW)` to `cv2.VideoCapture(0)`.
 
 ## Troubleshooting
 
-| Problem | Fix |
-|---|---|
-| `GEMINI_API_KEY is not set` | Create `.env` in the repo root (see [step 3](#3-add-your-api-key)). |
-| `Could not open camera 0` | Close other apps using the camera and check your OS camera permission. On Linux, add yourself to the `video` group. |
-| `Daily Gemini quota used up` | The free tier has a daily limit. Wait until tomorrow, or raise `CHECK_INTERVAL` in `main.py` so it lasts longer. |
-| Title screen image is missing | Run from the repo root so `./yellingTA.png` can be found. |
-| `No module named '_tkinter'` | Install Tkinter: `sudo apt install python3-tk` on Linux, or `brew install python-tk` on macOS. |
-| `pip install` fails on `pywin32` | You're not on Windows. See the note in [step 2](#2-install-the-python-packages). |
-| `pip install` fails on `mediapipe` | Use Python 3.10–3.12. |
-| No sound | Run `python test_speak.py`. If gTTS fails, the app falls back to the offline voice, which needs `espeak-ng` on Linux. |
+| Problem                            | Fix                                                                                                                   |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `GEMINI_API_KEY is not set`        | Create `.env` in the repo root (see [step 3](#3-add-your-api-key)).                                                   |
+| `Could not open camera 0`          | Close other apps using the camera and check your OS camera permission. On Linux, add yourself to the `video` group.   |
+| `Daily Gemini quota used up`       | The free tier has a daily limit. Wait until tomorrow, or raise `CHECK_INTERVAL` in `main.py` so it lasts longer.      |
+| Title screen image is missing      | Run from the repo root so `./yellingTA.png` can be found.                                                             |
+| `No module named '_tkinter'`       | Install Tkinter: `sudo apt install python3-tk` on Linux, or `brew install python-tk` on macOS.                        |
+| `pip install` fails on `pywin32`   | You're not on Windows. See the note in [step 2](#2-install-the-python-packages).                                      |
+| `pip install` fails on `mediapipe` | Use Python 3.10–3.12.                                                                                                 |
+| No sound                           | Run `python test_speak.py`. If gTTS fails, the app falls back to the offline voice, which needs `espeak-ng` on Linux. |
