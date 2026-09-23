@@ -1,5 +1,7 @@
 # The TA
 
+This Project was made for UTM Hackathon EmberHacks.
+
 A study buddy that watches you through your webcam and tells you off when you get distracted.
 
 You pick a TA persona on the title screen, and the app opens your webcam. Every few seconds it sends a frame to Google Gemini, which decides whether you're focused and writes a line in your TA's voice. If you're distracted, the TA says that line out loud.
